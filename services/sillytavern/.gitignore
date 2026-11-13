@@ -1,0 +1,6 @@
+data/
+cache/
+logs/
+config/
+plugins/
+extensions/

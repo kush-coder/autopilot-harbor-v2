@@ -1,0 +1,264 @@
+/**
+ * Shared utilities for integrating Harbor services with OpenAI-compatible inference backends.
+ *
+ * This module provides:
+ * - Centralized backend registry
+ * - Common detection logic
+ * - Dependency management helpers
+ * - Environment injection utilities
+ */
+
+import type { ServiceDefinition } from './composeTypes';
+
+/**
+ * Backend configuration for OpenAI-compatible inference services.
+ */
+export interface BackendInfo {
+  /** Internal Docker network URL */
+  url: string;
+  /** Display name (used in logs, configs, etc.) */
+  name: string;
+}
+
+/**
+ * Result of backend detection.
+ */
+export interface DetectedBackend {
+  /** Service name (e.g., "ollama", "vllm") */
+  service: string;
+  /** Backend configuration */
+  info: BackendInfo;
+}
+
+/**
+ * Registry of OpenAI-compatible inference backends supported by Harbor.
+ *
+ * These backends all expose a /v1/chat/completions endpoint compatible
+ * with OpenAI's API format, making them interchangeable for most services.
+ *
+ * Order matters: when multiple backends are active without explicit selection,
+ * the first one in this object is used.
+ */
+export const OPENAI_COMPATIBLE_BACKENDS: Record<string, BackendInfo> = {
+  ollama: { url: 'http://ollama:11434', name: 'Ollama' },
+  llamacpp: { url: 'http://llamacpp:8080', name: 'Llama.cpp' },
+  ikllamacpp: { url: 'http://ikllamacpp:8080', name: 'ik_llama.cpp' },
+  prismml: { url: 'http://prismml:8080', name: 'PrismML llama.cpp' },
+  vllm: { url: 'http://vllm:8000', name: 'vLLM' },
+  tabbyapi: { url: 'http://tabbyapi:5000', name: 'TabbyAPI' },
+  mistralrs: { url: 'http://mistralrs:8021', name: 'Mistral.rs' },
+  sglang: { url: 'http://sglang:30000', name: 'SGLang' },
+  lmdeploy: { url: 'http://lmdeploy:23333', name: 'LMDeploy' },
+  aphrodite: { url: 'http://aphrodite:2242', name: 'Aphrodite' },
+  ktransformers: { url: 'http://ktransformers:8088', name: 'KTransformers' },
+  'unsloth-studio': { url: 'http://unsloth-studio:8000', name: 'Unsloth Studio' },
+};
+
+/** Maps backend service names to their Harbor config model keys. */
+export const BACKEND_MODEL_KEYS: Record<string, string> = {
+  llamacpp: 'llamacpp.model',
+  ikllamacpp: 'ikllamacpp.model',
+  prismml: 'prismml.model',
+  vllm: 'vllm.model',
+  tabbyapi: 'tabbyapi.model',
+  mistralrs: 'mistralrs.model',
+  sglang: 'sglang.model',
+  aphrodite: 'aphrodite.model',
+  ktransformers: 'ktransformers.model',
+};
+
+/**
+ * Detects which OpenAI-compatible backend to use based on active services.
+ *
+ * Detection priority:
+ * 1. First explicitly requested backend from explicitServices (preserves user order)
+ * 2. First active backend in BACKENDS order (deterministic fallback)
+ * 3. null if no backends are active
+ *
+ * @param services - All active services in the compose stack
+ * @param explicitServices - Services explicitly requested by user (preserves order)
+ * @param backends - Backend registry to use (defaults to OPENAI_COMPATIBLE_BACKENDS)
+ * @returns DetectedBackend or null if no backend found
+ *
+ * @example
+ * ```ts
+ * // User runs: harbor up myservice ollama vllm
+ * // explicitServices = ['myservice', 'ollama', 'vllm']
+ * // Result: { service: 'ollama', info: { url: '...', name: 'Ollama' } }
+ *
+ * // User runs: harbor up myservice (ollama already running)
+ * // explicitServices = ['myservice'], services = ['myservice', 'ollama']
+ * // Result: { service: 'ollama', info: { url: '...', name: 'Ollama' } }
+ * ```
+ */
+export function detectBackend(
+  services: string[],
+  explicitServices: string[],
+  backends: Record<string, BackendInfo> = OPENAI_COMPATIBLE_BACKENDS
+): DetectedBackend | null {
+  // Priority 1: Explicitly requested backends (in user's order)
+  const explicitBackend = explicitServices
+    .map((svc: string) => [svc, backends[svc]] as const)
+    .find(([, backend]: readonly [string, BackendInfo | undefined]) => backend)?.[0];
+
+  // Priority 2: First active backend in registry order (deterministic)
+  const fallbackBackend = Object.keys(backends)
+    .find(svc => services.includes(svc));
+
+  const backendService = explicitBackend || fallbackBackend;
+
+  if (!backendService) {
+    return null;
+  }
+
+  return {
+    service: backendService,
+    info: backends[backendService]
+  };
+}
+
+/**
+ * Gets all active backends from the services list.
+ *
+ * Unlike detectBackend(), this returns ALL active backends, not just the first one.
+ * Useful for services that need to integrate with multiple backends simultaneously.
+ *
+ * @param services - All active services in the compose stack
+ * @param backends - Backend registry to use (defaults to OPENAI_COMPATIBLE_BACKENDS)
+ * @returns Array of detected backends with their service names
+ *
+ * @example
+ * ```ts
+ * // ollama and vllm are both active
+ * const backends = getAllActiveBackends(['myservice', 'ollama', 'vllm']);
+ * // Result: [
+ * //   { service: 'ollama', info: { url: '...', name: 'Ollama' } },
+ * //   { service: 'vllm', info: { url: '...', name: 'vLLM' } }
+ * // ]
+ * ```
+ */
+export function getAllActiveBackends(
+  services: string[],
+  backends: Record<string, BackendInfo> = OPENAI_COMPATIBLE_BACKENDS
+): DetectedBackend[] {
+  return Object.entries(backends)
+    .filter(([svc]) => services.includes(svc))
+    .map(([svc, info]) => ({ service: svc, info }));
+}
+
+/**
+ * Adds a backend service to the depends_on list of a compose service.
+ *
+ * Handles both array and object formats for depends_on, deduplicates entries.
+ *
+ * @param service - Compose service definition to modify
+ * @param backendService - Backend service name to add as dependency
+ *
+ * @example
+ * ```ts
+ * addBackendDependency(compose.services.myservice, 'ollama');
+ * // Result: myservice.depends_on = [...existing, 'ollama'] (deduplicated)
+ * ```
+ */
+export function addBackendDependency(
+  service: ServiceDefinition,
+  backendService: string
+): void {
+  const existingDeps = service.depends_on;
+
+  // Preserve object-form depends_on so per-service conditions written by
+  // cross-integration YAML files (e.g. service_completed_successfully on
+  // an unsloth-studio bootstrap sidecar) survive this merge.
+  if (existingDeps && !Array.isArray(existingDeps)) {
+    if (!(backendService in existingDeps)) {
+      existingDeps[backendService] = { condition: 'service_started' };
+    }
+    return;
+  }
+
+  const depsArray = Array.isArray(existingDeps) ? existingDeps : [];
+  service.depends_on = [
+    ...new Set([...depsArray, backendService])
+  ];
+}
+
+/**
+ * Injects backend connection details as environment variables.
+ *
+ * Sets HARBOR_BACKEND_NAME and HARBOR_BACKEND_URL in the service's environment.
+ * Handles both array and object formats for environment variables.
+ *
+ * @param service - Compose service definition to modify
+ * @param backend - Detected backend to inject
+ *
+ * @example
+ * ```ts
+ * injectBackendEnv(compose.services.nanobot, {
+ *   service: 'ollama',
+ *   info: { url: 'http://ollama:11434', name: 'Ollama' }
+ * });
+ * // Result: environment includes HARBOR_BACKEND_NAME=Ollama, HARBOR_BACKEND_URL=http://ollama:11434
+ * ```
+ */
+export function injectBackendEnv(
+  service: ServiceDefinition,
+  backend: DetectedBackend
+): void {
+  // Ensure environment object exists
+  if (!service.environment) {
+    service.environment = {};
+  }
+
+  // Skip keys that a cross-integration YAML has already set — preserves
+  // explicit overrides (e.g. compose.x.openclaw.unsloth-studio.yml uses
+  // the lowercase service handle for HARBOR_BACKEND_NAME instead of the
+  // display name).
+  const hasKey = (key: string): boolean => {
+    if (Array.isArray(service.environment)) {
+      const prefix = `${key}=`;
+      return service.environment.some((e: string) => e === key || e.startsWith(prefix));
+    }
+    return key in (service.environment as Record<string, string>);
+  };
+
+  if (Array.isArray(service.environment)) {
+    if (!hasKey('HARBOR_BACKEND_NAME')) {
+      service.environment.push(`HARBOR_BACKEND_NAME=${backend.info.name}`);
+    }
+    if (!hasKey('HARBOR_BACKEND_URL')) {
+      service.environment.push(`HARBOR_BACKEND_URL=${backend.info.url}`);
+    }
+  } else {
+    if (!hasKey('HARBOR_BACKEND_NAME')) {
+      service.environment.HARBOR_BACKEND_NAME = backend.info.name;
+    }
+    if (!hasKey('HARBOR_BACKEND_URL')) {
+      service.environment.HARBOR_BACKEND_URL = backend.info.url;
+    }
+  }
+}
+
+/** Appends /v1 to a URL if not already present. OpenAI-compatible drivers expect this suffix. */
+export function ensureV1Suffix(url: string): string {
+  const trimmed = url.replace(/\/+$/, '');
+  return trimmed.endsWith('/v1') ? trimmed : `${trimmed}/v1`;
+}
+
+/** Sets environment variables on a compose service, deduplicating existing entries. */
+export function setEnvVars(
+  service: ServiceDefinition,
+  vars: Record<string, string>,
+): void {
+  if (Array.isArray(service.environment)) {
+    const keys = new Set(Object.keys(vars));
+    service.environment = service.environment.filter(
+      (e: string) => !keys.has(e.split('=')[0]),
+    );
+    for (const [k, v] of Object.entries(vars)) {
+      service.environment.push(`${k}=${v}`);
+    }
+  } else {
+    if (!service.environment) service.environment = {};
+    Object.assign(service.environment as Record<string, string>, vars);
+  }
+}

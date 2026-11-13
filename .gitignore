@@ -1,0 +1,169 @@
+# Local .env
+.env
+
+# Python
+.venv
+
+# Node
+node_modules/
+
+# Deno
+.deno-cache/
+
+# Open WebUI (old)
+open-webui/*
+open-webui/config.json
+
+!open-webui/configs/
+!open-webui/extras/
+!open-webui/start_webui.sh
+!open-webui/override.env
+
+# Open WebUI (new, in services)
+services/webui/*
+services/webui/config.json
+
+!services/webui/configs/
+!services/webui/extras/
+!services/webui/start_webui.sh
+!services/webui/override.env
+
+# Open WebUI (new, in root)
+webui/*
+webui/config.json
+
+!webui/configs/
+!webui/extras/
+!webui/start_webui.sh
+!webui/override.env
+
+# Ollama
+/ollama/ollama/
+
+# Openedai Speech
+tts/voices/
+
+# General
+node_modules/
+
+# langfuse
+langfuse/db/
+
+scripts/*
+!scripts/demos/
+!scripts/harbor-docker.sh
+
+# LiteLLM
+litellm/db
+
+# Plandex
+plandex/data
+plandex/db
+
+# Dify
+dify/volumes/
+services/dify/nginx/conf.d/default.conf
+
+# TextGrad
+textgrad/workspace/*
+!textgrad/workspace/000-sample.ipynb
+
+# ChatUI
+services/chatui/data/
+
+# ComfyUI
+comfyui/workspace/
+
+# Hermes (default workspace lives at repo root)
+/hermes/
+
+# Perplexica
+services/perplexica/data/
+services/perplexica/cache/
+perplexica/config.toml
+
+# AutoGPT
+autogpt/data/
+autogpt/workspace/
+autogpt/logs/
+
+# Bionicgpt
+bionicgpt/db
+
+# Omnichain
+/services/omnichain/data/*
+!/services/omnichain/data/.gitkeep
+
+# Bench
+services/bench/results/
+
+# lm_eval
+services/lmeval/cache/
+services/lmeval/results/
+services/lmeval/.hf-cache/
+
+# profiles
+profiles/*
+!profiles/default.env
+
+# Jupyter
+jupyter/workspace/*
+!jupyter/workspace/000-sample.ipynb
+
+# History
+.history
+
+# Boost
+**/__pycache__/
+
+# AnythingLLM
+services/anythingllm/storage/
+
+# Build
+dist/
+
+# Aider
+.aider.chat.history.md
+
+# Open WebUI Pipelines
+pipelines/*
+!pipelines/override.env
+
+# Qdrant
+services/qdrant/storage
+
+# PhotoPrism
+services/photoprism/storage/
+
+# Merged compose
+__harbor*.yml
+
+# Migration backups
+.migration-backup-*
+
+.cache
+.local
+.npm
+.pkgx
+
+# Skills
+skills-lock.json
+
+# Claude local runtime state
+.claude/scheduled_tasks.lock
+
+# Lemonade
+services/lemonade/data/
+
+# Parcel
+.parcel-cache
+
+# Test artifacts (per-run logs from `harbor dev test`; spec keeps these out of git).
+tests/artifacts/
+# Integration test artifacts
+integration/
+
+# Skill-creator runtime scripts
+.agents/skills/skill-creator/scripts/
+services/deerflow/data
+services/deerflow/redis
